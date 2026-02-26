@@ -307,7 +307,7 @@ export default function App() {
   const [chapters, setChapters] = useState<Chapter[]>(BOOK_DATA['1']);
   const [activeChapterId, setActiveChapterId] = useState<string>('cover');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [isEditing, setIsEditing] = useState(false);
+  const [isEditing, setIsEditing] = useState(true);
   const [user, setUser] = useState<any>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authEmail, setAuthEmail] = useState('');
