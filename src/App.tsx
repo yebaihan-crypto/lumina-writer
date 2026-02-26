@@ -18,9 +18,15 @@ import {
   Type,
   Trash2,
   FileText,
-  Download
+  Download,
+  User,
+  Cloud,
+  CloudOff,
+  LogOut,
+  Mail
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { supabase } from './lib/supabase';
 
 interface Chapter {
   id: string;
@@ -302,7 +308,88 @@ export default function App() {
   const [activeChapterId, setActiveChapterId] = useState<string>('cover');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
+  const [user, setUser] = useState<any>(null);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+  const [isSynced, setIsSynced] = useState(true);
   const contentRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleAuth = async (isSignUp: boolean) => {
+    setAuthLoading(true);
+    const { error } = isSignUp
+      ? await supabase.auth.signUp({ email: authEmail, password: authPassword })
+      : await supabase.auth.signInWithPassword({ email: authEmail, password: authPassword });
+
+    if (error) {
+      alert(error.message);
+    } else {
+      setShowAuthModal(false);
+    }
+    setAuthLoading(false);
+  };
+
+  // Cloud Sync Logic
+  useEffect(() => {
+    if (user) {
+      loadFromCloud();
+    } else {
+      setChapters(BOOK_DATA[currentBook.id] || []);
+    }
+  }, [user, currentBook.id]);
+
+  useEffect(() => {
+    if (user) {
+      const timer = setTimeout(() => {
+        saveToCloud();
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [chapters]);
+
+  const loadFromCloud = async () => {
+    if (!user) return;
+    const { data, error } = await supabase
+      .from('user_books')
+      .select('chapters_data')
+      .eq('user_id', user.id)
+      .eq('book_id', currentBook.id)
+      .single();
+
+    if (data && !error) {
+      setChapters(data.chapters_data);
+    } else {
+      setChapters(BOOK_DATA[currentBook.id] || []);
+    }
+  };
+
+  const saveToCloud = async () => {
+    if (!user) return;
+    setIsSynced(false);
+    const { error } = await supabase
+      .from('user_books')
+      .upsert({
+        user_id: user.id,
+        book_id: currentBook.id,
+        chapters_data: chapters,
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'user_id,book_id' });
+
+    if (!error) setIsSynced(true);
+  };
 
   // Find active chapter
   const findChapter = (list: Chapter[], id: string): Chapter | undefined => {
@@ -320,7 +407,6 @@ export default function App() {
 
   const handleBookSelect = (book: BookUniverse) => {
     setCurrentBook(book);
-    setChapters(BOOK_DATA[book.id] || []);
     setActiveChapterId('cover');
   };
 
@@ -477,11 +563,109 @@ export default function App() {
         className="bg-[#EBE9E4] border-r border-stone-300 flex flex-col overflow-hidden relative"
       >
         {/* macOS Style Window Controls */}
-        <div className="p-4 flex items-center gap-2">
-          <div className="w-3 h-3 rounded-full bg-[#FF5F57] border border-[#E0443E]" />
-          <div className="w-3 h-3 rounded-full bg-[#FFBD2E] border border-[#DEA123]" />
-          <div className="w-3 h-3 rounded-full bg-[#27C93F] border border-[#1AAB29]" />
+        <div className="p-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full bg-[#FF5F57] border border-[#E0443E]" />
+            <div className="w-3 h-3 rounded-full bg-[#FFBD2E] border border-[#DEA123]" />
+            <div className="w-3 h-3 rounded-full bg-[#27C93F] border border-[#1AAB29]" />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => user ? supabase.auth.signOut() : setShowAuthModal(true)}
+              className="p-1.5 rounded-full hover:bg-stone-200 text-stone-500 transition-colors relative group"
+              title={user ? `已登录: ${user.email}` : "登录以同步云端"}
+            >
+              {user ? <User size={16} className="text-blue-500" /> : <User size={16} />}
+              {user && (
+                <div className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-green-500 border border-white" />
+              )}
+            </button>
+            {user && (
+              <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-white/50 border border-stone-200 shadow-sm">
+                {isSynced ? (
+                  <Cloud size={12} className="text-green-500" />
+                ) : (
+                  <motion.div
+                    animate={{ opacity: [1, 0.5, 1] }}
+                    transition={{ repeat: Infinity, duration: 1.5 }}
+                  >
+                    <Cloud size={12} className="text-blue-400" />
+                  </motion.div>
+                )}
+                <span className="text-[10px] text-stone-400 font-medium">
+                  {isSynced ? '已同步' : '同步中'}
+                </span>
+              </div>
+            )}
+          </div>
         </div>
+
+        {showAuthModal && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden"
+            >
+              <div className="p-8">
+                <div className="flex justify-center mb-6">
+                  <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center text-blue-500">
+                    <Cloud size={32} />
+                  </div>
+                </div>
+                <h3 className="text-xl font-bold text-center text-stone-800 mb-2">云端同步</h3>
+                <p className="text-sm text-stone-500 text-center mb-8">登录后您的写作记录将在所有设备同步</p>
+
+                <div className="space-y-4">
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" size={18} />
+                    <input
+                      type="email"
+                      placeholder="邮箱地址"
+                      className="w-full pl-10 pr-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
+                      value={authEmail}
+                      onChange={(e) => setAuthEmail(e.target.value)}
+                    />
+                  </div>
+                  <div className="relative">
+                    <Settings className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" size={18} />
+                    <input
+                      type="password"
+                      placeholder="设置密码"
+                      className="w-full pl-10 pr-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
+                      value={authPassword}
+                      onChange={(e) => setAuthPassword(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 mt-8">
+                  <button
+                    disabled={authLoading}
+                    onClick={() => handleAuth(false)}
+                    className="py-3 px-4 bg-stone-100 hover:bg-stone-200 text-stone-700 font-semibold rounded-xl transition-colors disabled:opacity-50"
+                  >
+                    登录
+                  </button>
+                  <button
+                    disabled={authLoading}
+                    onClick={() => handleAuth(true)}
+                    className="py-3 px-4 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-xl shadow-lg shadow-blue-500/20 transition-colors disabled:opacity-50"
+                  >
+                    注册
+                  </button>
+                </div>
+                <button
+                  onClick={() => setShowAuthModal(false)}
+                  className="w-full mt-4 py-2 text-sm text-stone-400 hover:text-stone-600 transition-colors"
+                >
+                  稍后再说
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
 
         {/* Book Switcher */}
         <BookSwitcher
