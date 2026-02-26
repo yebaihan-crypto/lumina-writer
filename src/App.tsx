@@ -805,12 +805,13 @@ export default function App() {
                       ref={contentRef}
                       contentEditable={isEditing}
                       suppressContentEditableWarning
-                      onInput={handleContentChange}
+                      onBlur={(e) => {
+                        updateChapterContent(activeChapterId, e.currentTarget.innerText);
+                      }}
                       className={`font-serif text-xl leading-relaxed text-stone-700 text-justify outline-none whitespace-pre-wrap ${isEditing ? 'cursor-text' : 'cursor-default'}`}
                       style={{ minHeight: '400px' }}
-                    >
-                      {activeChapter?.content}
-                    </div>
+                      dangerouslySetInnerHTML={{ __html: activeChapter?.content || '' }}
+                    />
 
                     {/* Page Footer Decoration */}
                     <div className="mt-auto pt-24 flex flex-col items-center opacity-20 select-none">
